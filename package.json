@@ -2,7 +2,8 @@
   "name": "pairwise",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --local --port 8787 --inspector-port 9229",
+    "dev:remote": "wrangler dev",
     "deploy": "wrangler deploy --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"
   },
@@ -10,6 +11,7 @@
     "hono": "^4.11.4"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260118.0",
     "wrangler": "^4.4.0"
   }
 }
