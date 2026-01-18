@@ -51,46 +51,6 @@ app.get('/room/:id/ws', async (c) => {
   return stub.fetch(c.req.raw)
 })
 
-// SFU routes - delegate to Durable Object for session management
-app.post('/room/:id/sfu/session', async (c) => {
-  const roomId = c.req.param('id')
-
-  if (!/^[a-z0-9]{6}$/i.test(roomId)) {
-    return c.json({ error: 'Invalid room ID' }, 400)
-  }
-
-  // Forward to Durable Object to create/get session
-  const id = c.env.ROOM.idFromName(roomId)
-  const stub = c.env.ROOM.get(id)
-  return stub.fetch(c.req.raw)
-})
-
-app.post('/room/:id/sfu/offer', async (c) => {
-  const roomId = c.req.param('id')
-
-  if (!/^[a-z0-9]{6}$/i.test(roomId)) {
-    return c.json({ error: 'Invalid room ID' }, 400)
-  }
-
-  // Forward to Durable Object to handle SDP negotiation
-  const id = c.env.ROOM.idFromName(roomId)
-  const stub = c.env.ROOM.get(id)
-  return stub.fetch(c.req.raw)
-})
-
-app.post('/room/:id/sfu/renegotiate', async (c) => {
-  const roomId = c.req.param('id')
-
-  if (!/^[a-z0-9]{6}$/i.test(roomId)) {
-    return c.json({ error: 'Invalid room ID' }, 400)
-  }
-
-  // Forward to Durable Object to handle renegotiation
-  const id = c.env.ROOM.idFromName(roomId)
-  const stub = c.env.ROOM.get(id)
-  return stub.fetch(c.req.raw)
-})
-
 // Serve room interface HTML
 app.get('/room/:id', async (c) => {
   const roomId = c.req.param('id')

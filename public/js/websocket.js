@@ -65,9 +65,11 @@ class WebSocketClient {
 
   send(message) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log('Sending WebSocket message:', message.type)
       this.ws.send(JSON.stringify(message))
+      console.log('Message sent successfully')
     } else {
-      console.warn('WebSocket not connected, cannot send message')
+      console.warn('WebSocket not connected, cannot send message:', this.ws ? this.ws.readyState : 'no ws')
     }
   }
 

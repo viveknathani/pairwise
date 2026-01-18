@@ -25,11 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
     drawing.renderAllStrokes(msg.strokes)
   })
 
-  wsClient.on('user_joined', (msg) => {
-    console.log('User joined, user count:', msg.userCount)
-    updateUserCount(msg.userCount)
-  })
-
   wsClient.on('user_left', (msg) => {
     console.log('User left, user count:', msg.userCount)
     updateUserCount(msg.userCount)
@@ -51,13 +46,52 @@ document.addEventListener('DOMContentLoaded', () => {
     drawing.renderStrokeUpdate(msg.strokeId, msg.tool, msg.color, msg.points)
   })
 
-  wsClient.on('sfu_track_available', async (msg) => {
-    console.log('Peer audio track available:', msg.trackId, 'from user:', msg.userId, 'session:', msg.sessionId)
-    // Notify audio manager that a peer track is available
+  // Track current user count
+  let currentUserCount = 1
+
+  // WebRTC signaling handlers
+  wsClient.on('webrtc_offer', async (msg) => {
+    console.log('Received WebRTC offer from peer:', msg.userId)
     if (window.audioManager && window.audioManager.isConnected) {
-      await window.audioManager.subscribeToPeerTrack(msg.trackId, msg.userId, msg.sessionId)
+      await window.audioManager.handleOffer(msg.offer, msg.userId)
     }
   })
+
+  wsClient.on('webrtc_answer', async (msg) => {
+    console.log('Received WebRTC answer from peer:', msg.userId)
+    if (window.audioManager && window.audioManager.isConnected) {
+      await window.audioManager.handleAnswer(msg.answer, msg.userId)
+    }
+  })
+
+  wsClient.on('webrtc_ice_candidate', async (msg) => {
+    console.log('Received ICE candidate from peer:', msg.userId)
+    if (window.audioManager && window.audioManager.isConnected) {
+      await window.audioManager.handleIceCandidate(msg.candidate, msg.userId)
+    }
+  })
+
+  wsClient.on('user_joined', (msg) => {
+    console.log('User joined, user count:', msg.userCount)
+    currentUserCount = msg.userCount
+    updateUserCount(msg.userCount)
+
+    // If we have audio connected and peer just joined, initiate WebRTC
+    if (msg.userCount === 2 && window.audioManager && window.audioManager.isConnected && !window.audioManager.isInitiator) {
+      console.log('Peer joined and we have audio - initiating WebRTC offer')
+      setTimeout(() => {
+        window.audioManager.createOffer()
+      }, 500)
+    }
+  })
+
+  // Store userCount globally so audio manager can check it
+  wsClient.on('joined', (msg) => {
+    currentUserCount = msg.userCount
+  })
+
+  // Make currentUserCount available globally
+  window.getCurrentUserCount = () => currentUserCount
 
   // Connect WebSocket
   wsClient.connect()
