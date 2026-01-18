@@ -6,6 +6,7 @@ export { Room } from './room'
 interface Env {
   ROOM: DurableObjectNamespace
   REALTIME_SFU_API_KEY: string
+  REALTIME_APP_ID?: string  // Optional: Cloudflare Realtime App ID
   ASSETS: {
     fetch: (request: Request) => Promise<Response>
   }
@@ -50,21 +51,44 @@ app.get('/room/:id/ws', async (c) => {
   return stub.fetch(c.req.raw)
 })
 
-// Generate SFU token for audio
-app.get('/room/:id/sfu/token', async (c) => {
+// SFU routes - delegate to Durable Object for session management
+app.post('/room/:id/sfu/session', async (c) => {
   const roomId = c.req.param('id')
 
-  // Validate room ID
   if (!/^[a-z0-9]{6}$/i.test(roomId)) {
     return c.json({ error: 'Invalid room ID' }, 400)
   }
 
-  // TODO: Implement actual Cloudflare Realtime SFU token generation
-  // For now, return a placeholder
-  // This will need to call Cloudflare's SFU API with REALTIME_SFU_API_KEY
-  const token = await generateSFUToken(roomId, c.env.REALTIME_SFU_API_KEY)
+  // Forward to Durable Object to create/get session
+  const id = c.env.ROOM.idFromName(roomId)
+  const stub = c.env.ROOM.get(id)
+  return stub.fetch(c.req.raw)
+})
 
-  return c.json({ token, roomId })
+app.post('/room/:id/sfu/offer', async (c) => {
+  const roomId = c.req.param('id')
+
+  if (!/^[a-z0-9]{6}$/i.test(roomId)) {
+    return c.json({ error: 'Invalid room ID' }, 400)
+  }
+
+  // Forward to Durable Object to handle SDP negotiation
+  const id = c.env.ROOM.idFromName(roomId)
+  const stub = c.env.ROOM.get(id)
+  return stub.fetch(c.req.raw)
+})
+
+app.post('/room/:id/sfu/renegotiate', async (c) => {
+  const roomId = c.req.param('id')
+
+  if (!/^[a-z0-9]{6}$/i.test(roomId)) {
+    return c.json({ error: 'Invalid room ID' }, 400)
+  }
+
+  // Forward to Durable Object to handle renegotiation
+  const id = c.env.ROOM.idFromName(roomId)
+  const stub = c.env.ROOM.get(id)
+  return stub.fetch(c.req.raw)
 })
 
 // Serve room interface HTML

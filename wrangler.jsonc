@@ -9,12 +9,12 @@
         "name": "ROOM",
         "class_name": "Room"
       }
-    ]
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["Room"]
+      "new_sqlite_classes": ["Room"]
     }
   ],
   "assets": {

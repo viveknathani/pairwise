@@ -19,6 +19,9 @@ type ClientMessage =
   | { type: 'stroke_start'; strokeId: string; tool: string; color: string; x: number; y: number }
   | { type: 'stroke_move'; strokeId: string; x: number; y: number }
   | { type: 'stroke_end'; strokeId: string }
+  | { type: 'webrtc_offer'; offer: RTCSessionDescriptionInit; userId: string }
+  | { type: 'webrtc_answer'; answer: RTCSessionDescriptionInit; userId: string }
+  | { type: 'webrtc_ice_candidate'; candidate: RTCIceCandidateInit; userId: string }
 
 // Server → Client messages
 type ServerMessage =
@@ -29,15 +32,31 @@ type ServerMessage =
   | { type: 'room_full' }
   | { type: 'stroke_broadcast'; stroke: Stroke }
   | { type: 'stroke_update'; strokeId: string; tool: string; color: string; points: Point[] }
+  | { type: 'sfu_track_available'; userId: string; sessionId: string; trackId: string }
+
+interface SFUSession {
+  sessionId: string
+  userId: string
+  trackId?: string
+}
+
+interface RoomSFUSession {
+  sessionId: string
+  createdAt: number
+}
 
 export class Room {
   private state: DurableObjectState
+  private env: any
   private activeStrokes: Map<string, Stroke>  // In-progress strokes (strokeId → Stroke)
   private createdAt: number
+  private sfuSessions: Map<string, SFUSession>  // userId → session info
 
   constructor(state: DurableObjectState, env: any) {
     this.state = state
+    this.env = env
     this.activeStrokes = new Map()
+    this.sfuSessions = new Map()
     this.createdAt = Date.now()
 
     // Set up 1-hour TTL alarm on initialization
@@ -51,6 +70,23 @@ export class Room {
   }
 
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+
+    // Handle SFU session creation
+    if (url.pathname.endsWith('/sfu/session') && request.method === 'POST') {
+      return this.handleCreateSFUSession(request)
+    }
+
+    // Handle SFU offer/answer
+    if (url.pathname.endsWith('/sfu/offer') && request.method === 'POST') {
+      return this.handleSFUOffer(request)
+    }
+
+    // Handle SFU renegotiation (for adding remote tracks)
+    if (url.pathname.endsWith('/sfu/renegotiate') && request.method === 'POST') {
+      return this.handleSFURenegotiate(request)
+    }
+
     // WebSocket upgrade request
     const upgradeHeader = request.headers.get('Upgrade')
     if (upgradeHeader !== 'websocket') {
@@ -191,6 +227,270 @@ export class Room {
       session.close(1000, 'Room expired')
     })
     this.activeStrokes.clear()
+  }
+
+  // SFU Session Management
+  private async handleCreateSFUSession(request: Request): Promise<Response> {
+    try {
+      const { userId } = await request.json()
+      const appId = this.env.REALTIME_APP_ID || 'YOUR_APP_ID'
+
+      console.log(`Creating SFU session for user ${userId}`)
+
+      // Call Cloudflare's /sessions/new endpoint to create a real session
+      const sessionResponse = await fetch(
+        `https://rtc.live.cloudflare.com/v1/apps/${appId}/sessions/new`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.env.REALTIME_SFU_API_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+
+      if (!sessionResponse.ok) {
+        const errorBody = await sessionResponse.text()
+        console.error('Failed to create SFU session:', sessionResponse.status, errorBody)
+        throw new Error(`Failed to create session: ${sessionResponse.status} - ${errorBody}`)
+      }
+
+      // The API returns the created session with a sessionId
+      const sessionData = await sessionResponse.json()
+      console.log('SFU session created:', JSON.stringify(sessionData, null, 2))
+
+      // Extract sessionId from response (exact field name may vary, check response)
+      const sessionId = sessionData.sessionId || sessionData.id || sessionData.session?.sessionId
+
+      if (!sessionId) {
+        throw new Error('No sessionId in response from /sessions/new')
+      }
+
+      // Store session info
+      this.sfuSessions.set(userId, {
+        sessionId,
+        userId
+      })
+
+      console.log(`Created SFU session ${sessionId} for user ${userId}`)
+
+      // Get existing peer's track ID if available
+      const peerTracks = Array.from(this.sfuSessions.values())
+        .filter(s => s.userId !== userId && s.trackId)
+        .map(s => ({ userId: s.userId, sessionId: s.sessionId, trackId: s.trackId }))
+
+      return new Response(JSON.stringify({
+        sessionId,
+        appId,
+        peerTracks
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      })
+    } catch (error) {
+      console.error('Failed to create SFU session:', error)
+      return new Response(JSON.stringify({ error: 'Failed to create session' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  }
+
+  private async handleSFUOffer(request: Request): Promise<Response> {
+    try {
+      const { userId, offer } = await request.json()
+      console.log('Handling SFU offer for user:', userId)
+
+      const session = this.sfuSessions.get(userId)
+      if (!session) {
+        throw new Error('Session not found')
+      }
+
+      const appId = this.env.REALTIME_APP_ID || 'YOUR_APP_ID'
+
+      // Extract mid from SDP offer
+      const midMatch = offer.sdp.match(/a=mid:(\S+)/)
+      const mid = midMatch ? midMatch[1] : '0'
+      console.log('Extracted mid from SDP:', mid)
+
+      const requestBody = {
+        sessionDescription: offer,
+        tracks: [{
+          location: 'local',
+          mid: mid,
+          trackName: `audio-${userId}`,
+          bidirectionalMediaStream: true,  // Allow this track to be pulled by peers
+          kind: 'audio'  // Specify track type (undocumented field)
+        }]
+      }
+
+      console.log('Calling SFU API with:', JSON.stringify(requestBody, null, 2))
+
+      // Call Cloudflare Realtime API with offer to get answer and create track
+      const trackResponse = await fetch(
+        `https://rtc.live.cloudflare.com/v1/apps/${appId}/sessions/${session.sessionId}/tracks/new`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.env.REALTIME_SFU_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        }
+      )
+
+      if (!trackResponse.ok) {
+        const errorBody = await trackResponse.text()
+        console.error('SFU API error response:', trackResponse.status, errorBody)
+        throw new Error(`SFU API error: ${trackResponse.status} - ${errorBody}`)
+      }
+
+      const trackData = await trackResponse.json()
+      console.log('SFU API response:', JSON.stringify(trackData, null, 2))
+
+      // Store track info - use trackName as the identifier
+      const publishedTrack = trackData.tracks?.[0]
+      session.trackId = publishedTrack?.trackName || `audio-${userId}`
+      this.sfuSessions.set(userId, session)
+
+      console.log('Published track successfully:', session.trackId)
+
+      // Notify other WebSocket clients about new track
+      this.broadcast({
+        type: 'sfu_track_available',
+        userId,
+        sessionId: session.sessionId,
+        trackId: session.trackId,
+        trackName: session.trackId  // trackName is what we need to pull
+      } as any)
+
+      return new Response(JSON.stringify({
+        answer: trackData.sessionDescription,
+        trackId: session.trackId
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      })
+    } catch (error) {
+      console.error('Failed to handle SFU offer:', error)
+      return new Response(JSON.stringify({
+        error: 'Failed to negotiate',
+        details: error instanceof Error ? error.message : String(error)
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  }
+
+  private async handleSFURenegotiate(request: Request): Promise<Response> {
+    try {
+      const { userId, offer, peerSessionId, peerTrackName } = await request.json()
+      console.log('Handling SFU renegotiation for user:', userId)
+      console.log('Adding remote track:', peerTrackName, 'from session:', peerSessionId)
+
+      const session = this.sfuSessions.get(userId)
+      if (!session) {
+        throw new Error('Session not found')
+      }
+
+      const appId = this.env.REALTIME_APP_ID || 'YOUR_APP_ID'
+
+      // Extract mid from SDP offer
+      const midMatches = offer.sdp.match(/a=mid:(\S+)/g)
+      const mids = midMatches ? midMatches.map((m: string) => m.split(':')[1]) : []
+      const remoteMid = mids[mids.length - 1] || '1' // Get the last mid (newest transceiver)
+      console.log('Extracted mid for remote track:', remoteMid)
+
+      const requestBody = {
+        sessionDescription: offer,
+        tracks: [{
+          location: 'remote',
+          mid: remoteMid,
+          trackName: peerTrackName,
+          sessionId: peerSessionId,
+          kind: 'audio'  // Specify track type (undocumented field)
+        }]
+      }
+
+      console.log('Calling SFU API for renegotiation with:', JSON.stringify(requestBody, null, 2))
+
+      // Call Cloudflare Realtime API to add remote track
+      const trackResponse = await fetch(
+        `https://rtc.live.cloudflare.com/v1/apps/${appId}/sessions/${session.sessionId}/tracks/new`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.env.REALTIME_SFU_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        }
+      )
+
+      if (!trackResponse.ok) {
+        const errorBody = await trackResponse.text()
+        console.error('SFU API error response:', trackResponse.status, errorBody)
+        throw new Error(`SFU API error: ${trackResponse.status} - ${errorBody}`)
+      }
+
+      const trackData = await trackResponse.json()
+      console.log('SFU API response:', JSON.stringify(trackData, null, 2))
+
+      // Check if track has an error
+      if (trackData.tracks && trackData.tracks[0] && trackData.tracks[0].errorCode) {
+        const track = trackData.tracks[0]
+        console.error('Track error:', track.errorCode, track.errorDescription)
+        throw new Error(`Track error: ${track.errorCode} - ${track.errorDescription}`)
+      }
+
+      // If renegotiation is required, call the renegotiate endpoint
+      if (trackData.requiresImmediateRenegotiation) {
+        console.log('Immediate renegotiation required')
+
+        const renegotiateResponse = await fetch(
+          `https://rtc.live.cloudflare.com/v1/apps/${appId}/sessions/${session.sessionId}/renegotiate`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${this.env.REALTIME_SFU_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              sessionDescription: trackData.sessionDescription
+            })
+          }
+        )
+
+        if (!renegotiateResponse.ok) {
+          const errorBody = await renegotiateResponse.text()
+          console.error('Renegotiate error:', renegotiateResponse.status, errorBody)
+          throw new Error(`Renegotiate failed: ${renegotiateResponse.status}`)
+        }
+
+        const renegotiateData = await renegotiateResponse.json()
+        console.log('Renegotiate response:', JSON.stringify(renegotiateData, null, 2))
+
+        return new Response(JSON.stringify({
+          answer: renegotiateData.sessionDescription
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        })
+      }
+
+      return new Response(JSON.stringify({
+        answer: trackData.sessionDescription
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      })
+    } catch (error) {
+      console.error('Failed to handle SFU renegotiation:', error)
+      return new Response(JSON.stringify({
+        error: 'Failed to renegotiate',
+        details: error instanceof Error ? error.message : String(error)
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
   }
 
   // Helper: Broadcast message to all connected clients except sender

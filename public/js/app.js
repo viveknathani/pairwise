@@ -51,6 +51,14 @@ document.addEventListener('DOMContentLoaded', () => {
     drawing.renderStrokeUpdate(msg.strokeId, msg.tool, msg.color, msg.points)
   })
 
+  wsClient.on('sfu_track_available', async (msg) => {
+    console.log('Peer audio track available:', msg.trackId, 'from user:', msg.userId, 'session:', msg.sessionId)
+    // Notify audio manager that a peer track is available
+    if (window.audioManager && window.audioManager.isConnected) {
+      await window.audioManager.subscribeToPeerTrack(msg.trackId, msg.userId, msg.sessionId)
+    }
+  })
+
   // Connect WebSocket
   wsClient.connect()
 
