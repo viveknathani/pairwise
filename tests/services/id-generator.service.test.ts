@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test'
-import roomService from '../../../src/services/RoomService'
-import { ROOM_ID_LENGTH } from '../../../src/utils'
+import roomService from '../../src/services/RoomService'
+import { ROOM_ID_LENGTH } from '../../src/utils'
 
 describe('RoomService.generateRoomId', () => {
   test('should generate ID with correct length', () => {

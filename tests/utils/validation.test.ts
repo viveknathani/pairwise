@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { isValidRoomId } from '../../../src/utils'
+import { isValidRoomId } from '../../src/utils'
 
 describe('isValidRoomId', () => {
   test('should accept valid 6-character alphanumeric IDs', () => {
