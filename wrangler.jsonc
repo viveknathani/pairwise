@@ -23,4 +23,10 @@
     "html_handling": "none",
     "not_found_handling": "none",
   },
+  "observability": {
+    "logs": {
+      "enabled": false,
+      "invocation_logs": true
+    }
+  }
 }
