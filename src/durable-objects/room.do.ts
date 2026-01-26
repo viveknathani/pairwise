@@ -1,48 +1,15 @@
 // Room Durable Object - Manages a two-person collaborative drawing room
 
-interface Stroke {
-  id: string
-  tool: 'pen' | 'eraser'
-  color: string
-  points: Array<{ x: number; y: number }>
-  timestamp: number
-}
-
-interface Point {
-  x: number
-  y: number
-}
-
-// Client → Server messages
-type ClientMessage =
-  | { type: 'join' }
-  | { type: 'stroke_start'; strokeId: string; tool: string; color: string; x: number; y: number }
-  | { type: 'stroke_move'; strokeId: string; x: number; y: number }
-  | { type: 'stroke_end'; strokeId: string }
-  | { type: 'webrtc_offer'; offer: RTCSessionDescriptionInit; userId: string }
-  | { type: 'webrtc_answer'; answer: RTCSessionDescriptionInit; userId: string }
-  | { type: 'webrtc_ice_candidate'; candidate: RTCIceCandidateInit; userId: string }
-
-// Server → Client messages
-type ServerMessage =
-  | { type: 'joined'; userCount: number }
-  | { type: 'full_state'; strokes: Stroke[] }
-  | { type: 'user_joined'; userCount: number }
-  | { type: 'user_left'; userCount: number }
-  | { type: 'room_full' }
-  | { type: 'stroke_broadcast'; stroke: Stroke }
-  | { type: 'stroke_update'; strokeId: string; tool: string; color: string; points: Point[] }
-  | { type: 'webrtc_offer'; offer: RTCSessionDescriptionInit; userId: string }
-  | { type: 'webrtc_answer'; answer: RTCSessionDescriptionInit; userId: string }
-  | { type: 'webrtc_ice_candidate'; candidate: RTCIceCandidateInit; userId: string }
+import type { Stroke, ClientMessage, ServerMessage, Env } from '../types'
+import roomService from '../services/RoomService'
 
 export class Room {
   private state: DurableObjectState
-  private env: any
-  private activeStrokes: Map<string, Stroke>  // In-progress strokes (strokeId → Stroke)
+  private env: Env
+  private activeStrokes: Map<string, Stroke> // In-progress strokes (strokeId → Stroke)
   private createdAt: number
 
-  constructor(state: DurableObjectState, env: any) {
+  constructor(state: DurableObjectState, env: Env) {
     this.state = state
     this.env = env
     this.activeStrokes = new Map()
@@ -50,11 +17,7 @@ export class Room {
 
     // Set up 1-hour TTL alarm on initialization
     this.state.blockConcurrencyWhile(async () => {
-      const existingAlarm = await this.state.storage.getAlarm()
-      if (!existingAlarm) {
-        // Set alarm for 1 hour from now
-        await this.state.storage.setAlarm(Date.now() + 3600000)
-      }
+      await roomService.setupTTLAlarm(this.state.storage)
     })
   }
 
@@ -81,10 +44,16 @@ export class Room {
     // Accept the WebSocket connection
     this.state.acceptWebSocket(server)
 
-    // Send current user count
+    // If room was empty, restore TTL alarm
+    if (currentSessions.length === 0) {
+      await roomService.restoreTTLAlarm(this.state.storage)
+    }
+
+    // Send current user count and assign role
     const userCount = this.state.getWebSockets().length
-    console.log(`New user connected! Total users: ${userCount}`)
-    server.send(JSON.stringify({ type: 'joined', userCount }))
+    const role = userCount === 1 ? 'initiator' : 'responder'
+    console.log(`New user connected! Total users: ${userCount}, role: ${role}`)
+    server.send(JSON.stringify({ type: 'joined', userCount, yourRole: role }))
 
     // Send full canvas state (all persisted strokes)
     const strokes = await this.loadStrokes()
@@ -117,18 +86,21 @@ export class Room {
             tool: msg.tool as 'pen' | 'eraser',
             color: msg.color,
             points: [{ x: msg.x, y: msg.y }],
-            timestamp: Date.now()
+            timestamp: Date.now(),
           }
           this.activeStrokes.set(msg.strokeId, newStroke)
 
           // Broadcast to peers
-          this.broadcast({
-            type: 'stroke_update',
-            strokeId: msg.strokeId,
-            tool: newStroke.tool,
-            color: newStroke.color,
-            points: newStroke.points
-          }, ws)
+          this.broadcast(
+            {
+              type: 'stroke_update',
+              strokeId: msg.strokeId,
+              tool: newStroke.tool,
+              color: newStroke.color,
+              points: newStroke.points,
+            },
+            ws
+          )
           break
 
         case 'stroke_move':
@@ -138,13 +110,16 @@ export class Room {
             stroke.points.push({ x: msg.x, y: msg.y })
 
             // Broadcast to peers
-            this.broadcast({
-              type: 'stroke_update',
-              strokeId: msg.strokeId,
-              tool: stroke.tool,
-              color: stroke.color,
-              points: stroke.points
-            }, ws)
+            this.broadcast(
+              {
+                type: 'stroke_update',
+                strokeId: msg.strokeId,
+                tool: stroke.tool,
+                color: stroke.color,
+                points: stroke.points,
+              },
+              ws
+            )
           }
           break
 
@@ -156,10 +131,13 @@ export class Room {
             await this.saveStroke(completedStroke)
 
             // Broadcast completed stroke to peers
-            this.broadcast({
-              type: 'stroke_broadcast',
-              stroke: completedStroke
-            }, ws)
+            this.broadcast(
+              {
+                type: 'stroke_broadcast',
+                stroke: completedStroke,
+              },
+              ws
+            )
 
             // Remove from active strokes
             this.activeStrokes.delete(msg.strokeId)
@@ -169,31 +147,40 @@ export class Room {
         case 'webrtc_offer':
           // Forward WebRTC offer to the other peer
           console.log('Forwarding WebRTC offer from', msg.userId)
-          this.broadcast({
-            type: 'webrtc_offer',
-            offer: msg.offer,
-            userId: msg.userId
-          }, ws)
+          this.broadcast(
+            {
+              type: 'webrtc_offer',
+              offer: msg.offer,
+              userId: msg.userId,
+            },
+            ws
+          )
           break
 
         case 'webrtc_answer':
           // Forward WebRTC answer to the other peer
           console.log('Forwarding WebRTC answer from', msg.userId)
-          this.broadcast({
-            type: 'webrtc_answer',
-            answer: msg.answer,
-            userId: msg.userId
-          }, ws)
+          this.broadcast(
+            {
+              type: 'webrtc_answer',
+              answer: msg.answer,
+              userId: msg.userId,
+            },
+            ws
+          )
           break
 
         case 'webrtc_ice_candidate':
           // Forward ICE candidate to the other peer
           console.log('Forwarding ICE candidate from', msg.userId)
-          this.broadcast({
-            type: 'webrtc_ice_candidate',
-            candidate: msg.candidate,
-            userId: msg.userId
-          }, ws)
+          this.broadcast(
+            {
+              type: 'webrtc_ice_candidate',
+              candidate: msg.candidate,
+              userId: msg.userId,
+            },
+            ws
+          )
           break
       }
     } catch (error) {
@@ -212,32 +199,33 @@ export class Room {
 
     // If room is empty, schedule cleanup
     if (userCount === 0) {
-      console.log('Room empty, scheduling cleanup in 5 minutes')
-      await this.state.storage.setAlarm(Date.now() + 300000)
+      await roomService.scheduleEmptyRoomCleanup(this.state.storage)
     }
   }
 
   async alarm(): Promise<void> {
-    // TTL expired or room has been empty - clean up
-    console.log('Room TTL expired or cleanup triggered, deleting all data')
+    const userCount = this.state.getWebSockets().length
+    const shouldCleanup = await roomService.handleAlarm(this.state.storage, userCount)
 
-    // Delete all persisted strokes
-    await this.state.storage.deleteAll()
+    if (!shouldCleanup) {
+      return
+    }
 
-    // Close any remaining connections
-    this.state.getWebSockets().forEach(session => {
+    // Clean up room
+    console.log('Room alarm triggered, deleting all data')
+    await roomService.cleanupRoom(this.state.storage)
+    this.state.getWebSockets().forEach((session) => {
       session.close(1000, 'Room expired')
     })
     this.activeStrokes.clear()
   }
 
-  // SFU Session Management
   // Helper: Broadcast message to all connected clients except sender
   private broadcast(message: ServerMessage, except?: WebSocket): void {
     const messageStr = JSON.stringify(message)
     const sessions = this.state.getWebSockets()
     console.log(`Broadcasting to ${sessions.length} sessions (except sender):`, message.type)
-    sessions.forEach(session => {
+    sessions.forEach((session) => {
       if (session !== except) {
         try {
           session.send(messageStr)
@@ -251,12 +239,11 @@ export class Room {
 
   // Helper: Load all persisted strokes from storage
   private async loadStrokes(): Promise<Stroke[]> {
-    const strokesMap = await this.state.storage.list<Stroke>({ prefix: 'stroke:' })
-    return Array.from(strokesMap.values())
+    return roomService.loadStrokes(this.state.storage)
   }
 
   // Helper: Save a completed stroke to storage
   private async saveStroke(stroke: Stroke): Promise<void> {
-    await this.state.storage.put(`stroke:${stroke.id}`, stroke)
+    await roomService.saveStroke(this.state.storage, stroke)
   }
 }

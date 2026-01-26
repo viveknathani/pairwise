@@ -31,9 +31,9 @@ class AudioManager {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
         },
-        video: false
+        video: false,
       })
 
       console.log('Got local audio stream')
@@ -44,12 +44,12 @@ class AudioManager {
       this.peerConnection = new RTCPeerConnection({
         iceServers: [
           // { urls: 'stun:stun.cloudflare.com:3478' },
-          { urls: 'stun:stun.l.google.com:19302' }
-        ]
+          { urls: 'stun:stun.l.google.com:19302' },
+        ],
       })
 
       // Add local audio track
-      this.localStream.getTracks().forEach(track => {
+      this.localStream.getTracks().forEach((track) => {
         this.peerConnection.addTrack(track, this.localStream)
         console.log('Added local track:', track.kind)
       })
@@ -66,12 +66,13 @@ class AudioManager {
         }
 
         this.remoteAudio.srcObject = event.streams[0]
-        this.remoteAudio.play()
+        this.remoteAudio
+          .play()
           .then(() => {
             console.log('Playing remote audio!')
             this.updateStatus('Connected - Audio active')
           })
-          .catch(e => console.error('Failed to play remote audio:', e))
+          .catch((e) => console.error('Failed to play remote audio:', e))
       }
 
       // Handle ICE candidates
@@ -81,7 +82,7 @@ class AudioManager {
           window.wsClient.send({
             type: 'webrtc_ice_candidate',
             candidate: event.candidate.toJSON(),
-            userId: this.userId
+            userId: this.userId,
           })
         }
       }
@@ -120,7 +121,7 @@ class AudioManager {
       this.updateStatus('Connection failed: ' + error.message)
 
       if (this.localStream) {
-        this.localStream.getTracks().forEach(track => track.stop())
+        this.localStream.getTracks().forEach((track) => track.stop())
         this.localStream = null
       }
 
@@ -152,7 +153,7 @@ class AudioManager {
       window.wsClient.send({
         type: 'webrtc_offer',
         offer: this.peerConnection.localDescription.toJSON(),
-        userId: this.userId
+        userId: this.userId,
       })
 
       console.log('Offer sent successfully')
@@ -180,7 +181,7 @@ class AudioManager {
     window.wsClient.send({
       type: 'webrtc_answer',
       answer: this.peerConnection.localDescription.toJSON(),
-      userId: this.userId
+      userId: this.userId,
     })
 
     this.updateStatus('Connecting...')
@@ -214,7 +215,7 @@ class AudioManager {
     try {
       // Stop local media tracks
       if (this.localStream) {
-        this.localStream.getTracks().forEach(track => track.stop())
+        this.localStream.getTracks().forEach((track) => track.stop())
         this.localStream = null
       }
 
@@ -252,7 +253,7 @@ class AudioManager {
 
     this.isMuted = !this.isMuted
 
-    this.localStream.getAudioTracks().forEach(track => {
+    this.localStream.getAudioTracks().forEach((track) => {
       track.enabled = !this.isMuted
     })
 

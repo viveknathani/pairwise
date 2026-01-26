@@ -181,8 +181,9 @@ body {
 #canvas {
   background: var(--bg-canvas);
   border-radius: 8px;
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.05),
-              0 4px 12px var(--shadow-soft);
+  box-shadow:
+    inset 0 2px 8px rgba(0, 0, 0, 0.05),
+    0 4px 12px var(--shadow-soft);
   cursor: crosshair;
   touch-action: none;
 }

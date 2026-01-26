@@ -7,20 +7,20 @@
     "bindings": [
       {
         "name": "ROOM",
-        "class_name": "Room"
-      }
+        "class_name": "Room",
+      },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Room"]
-    }
+      "new_sqlite_classes": ["Room"],
+    },
   ],
   "assets": {
     "directory": "src/web",
     "binding": "ASSETS",
     "html_handling": "none",
-    "not_found_handling": "none"
-  }
+    "not_found_handling": "none",
+  },
 }

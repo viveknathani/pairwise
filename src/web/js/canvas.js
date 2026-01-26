@@ -11,6 +11,7 @@ class CanvasDrawing {
     this.currentTool = 'pen'
     this.currentColor = '#5d4e37'
     this.peerStrokes = new Map() // Track in-progress peer strokes
+    this.peerStrokeProgress = new Map() // Track last rendered point index
 
     this.setupCanvas()
     this.setupEventListeners()
@@ -45,7 +46,7 @@ class CanvasDrawing {
         tool: this.currentTool,
         color: this.currentColor,
         x: pos.x,
-        y: pos.y
+        y: pos.y,
       })
     }
 
@@ -67,7 +68,7 @@ class CanvasDrawing {
       this.onStrokeEvent('move', {
         strokeId: this.currentStrokeId,
         x: pos.x,
-        y: pos.y
+        y: pos.y,
       })
     }
   }
@@ -81,7 +82,7 @@ class CanvasDrawing {
     // Notify server of stroke end
     if (this.onStrokeEvent) {
       this.onStrokeEvent('end', {
-        strokeId: this.currentStrokeId
+        strokeId: this.currentStrokeId,
       })
     }
 
@@ -94,7 +95,7 @@ class CanvasDrawing {
     const scaleY = this.canvas.height / rect.height
     return {
       x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY
+      y: (e.clientY - rect.top) * scaleY,
     }
   }
 
@@ -103,7 +104,8 @@ class CanvasDrawing {
   }
 
   beginPath(x, y) {
-    this.ctx.globalCompositeOperation = this.currentTool === 'eraser' ? 'destination-out' : 'source-over'
+    this.ctx.globalCompositeOperation =
+      this.currentTool === 'eraser' ? 'destination-out' : 'source-over'
     this.ctx.strokeStyle = this.currentColor
     this.ctx.lineWidth = this.currentTool === 'pen' ? 3 : 20
 
@@ -150,23 +152,49 @@ class CanvasDrawing {
   renderStrokeUpdate(strokeId, tool, color, points) {
     if (!points || points.length === 0) return
 
+    const lastRendered = this.peerStrokeProgress.get(strokeId) || 0
+
+    if (points.length <= lastRendered) return // No new points
+
     // Store peer stroke
     this.peerStrokes.set(strokeId, { tool, color, points })
 
-    // Render just this stroke (it persists on canvas)
-    this.renderStroke({ tool, color, points })
+    // Render only new segment
+    this.ctx.save()
+    this.setTool(tool, color)
+
+    if (lastRendered === 0) {
+      // First point
+      this.ctx.beginPath()
+      this.ctx.moveTo(points[0].x, points[0].y)
+    } else {
+      // Continue from last point
+      this.ctx.beginPath()
+      this.ctx.moveTo(points[lastRendered - 1].x, points[lastRendered - 1].y)
+    }
+
+    // Draw new segments
+    for (let i = Math.max(1, lastRendered); i < points.length; i++) {
+      this.ctx.lineTo(points[i].x, points[i].y)
+    }
+
+    this.ctx.stroke()
+    this.ctx.restore()
+
+    this.peerStrokeProgress.set(strokeId, points.length)
   }
 
   // Called when peer completes a stroke
   completePeerStroke(strokeId) {
     // Remove from active tracking (it's now persisted)
     this.peerStrokes.delete(strokeId)
+    this.peerStrokeProgress.delete(strokeId)
   }
 
   // Render all strokes from storage
   renderAllStrokes(strokes) {
     this.clearCanvas()
-    strokes.forEach(stroke => this.renderStroke(stroke))
+    strokes.forEach((stroke) => this.renderStroke(stroke))
   }
 }
 

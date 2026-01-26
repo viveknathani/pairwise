@@ -69,7 +69,10 @@ class WebSocketClient {
       this.ws.send(JSON.stringify(message))
       console.log('Message sent successfully')
     } else {
-      console.warn('WebSocket not connected, cannot send message:', this.ws ? this.ws.readyState : 'no ws')
+      console.warn(
+        'WebSocket not connected, cannot send message:',
+        this.ws ? this.ws.readyState : 'no ws'
+      )
     }
   }
 
@@ -91,7 +94,7 @@ class WebSocketClient {
       tool,
       color,
       x,
-      y
+      y,
     })
   }
 
@@ -100,14 +103,14 @@ class WebSocketClient {
       type: 'stroke_move',
       strokeId,
       x,
-      y
+      y,
     })
   }
 
   sendStrokeEnd(strokeId) {
     this.send({
       type: 'stroke_end',
-      strokeId
+      strokeId,
     })
   }
 }

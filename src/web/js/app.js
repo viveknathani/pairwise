@@ -16,7 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Connect WebSocket handlers
   wsClient.on('joined', (msg) => {
-    console.log('Joined room, user count:', msg.userCount)
+    console.log('Joined room, user count:', msg.userCount, 'role:', msg.yourRole)
+    myWebRTCRole = msg.yourRole
+    currentUserCount = msg.userCount
     updateUserCount(msg.userCount)
   })
 
@@ -46,8 +48,9 @@ document.addEventListener('DOMContentLoaded', () => {
     drawing.renderStrokeUpdate(msg.strokeId, msg.tool, msg.color, msg.points)
   })
 
-  // Track current user count
+  // Track current user count and role
   let currentUserCount = 1
+  let myWebRTCRole = null
 
   // WebRTC signaling handlers
   wsClient.on('webrtc_offer', async (msg) => {
@@ -76,18 +79,18 @@ document.addEventListener('DOMContentLoaded', () => {
     currentUserCount = msg.userCount
     updateUserCount(msg.userCount)
 
-    // If we have audio connected and peer just joined, initiate WebRTC
-    if (msg.userCount === 2 && window.audioManager && window.audioManager.isConnected && !window.audioManager.isInitiator) {
-      console.log('Peer joined and we have audio - initiating WebRTC offer')
+    // Only initiator creates offer when peer joins
+    if (
+      msg.userCount === 2 &&
+      myWebRTCRole === 'initiator' &&
+      window.audioManager &&
+      window.audioManager.isConnected
+    ) {
+      console.log('Peer joined and I am initiator - creating WebRTC offer')
       setTimeout(() => {
         window.audioManager.createOffer()
       }, 500)
     }
-  })
-
-  // Store userCount globally so audio manager can check it
-  wsClient.on('joined', (msg) => {
-    currentUserCount = msg.userCount
   })
 
   // Make currentUserCount available globally
@@ -113,12 +116,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Tool selection
-  document.querySelectorAll('.tool-btn').forEach(btn => {
+  document.querySelectorAll('.tool-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const tool = btn.getAttribute('data-tool')
 
       // Update UI
-      document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'))
+      document.querySelectorAll('.tool-btn').forEach((b) => b.classList.remove('active'))
       btn.classList.add('active')
 
       // Update canvas
@@ -127,12 +130,12 @@ document.addEventListener('DOMContentLoaded', () => {
   })
 
   // Color selection
-  document.querySelectorAll('.color-btn').forEach(btn => {
+  document.querySelectorAll('.color-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const color = btn.getAttribute('data-color')
 
       // Update UI
-      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'))
+      document.querySelectorAll('.color-btn').forEach((b) => b.classList.remove('active'))
       btn.classList.add('active')
 
       // Update canvas
