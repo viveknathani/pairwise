@@ -18,7 +18,7 @@
     }
   ],
   "assets": {
-    "directory": "public",
+    "directory": "src/web",
     "binding": "ASSETS",
     "html_handling": "none",
     "not_found_handling": "none"
