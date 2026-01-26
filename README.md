@@ -1,21 +1,13 @@
-```txt
-npm install
-npm run dev
-```
+# pairwise
 
-```txt
-npm run deploy
-```
+A work-in-progress lightweight, real-time multiplayer playground built on Cloudflare Workers, Durable Objects, and WebRTC.
 
-[For generating/synchronizing types based on your Worker configuration run](https://developers.cloudflare.com/workers/wrangler/commands/#types):
+It focuses on:
+- ephemeral rooms
+- real-time audio
+- shared drawing state
+- minimal backend surface area
 
-```txt
-npm run cf-typege
-```
+## license
 
-Pass the `CloudflareBindings` as generics when instantiation `Hono`:
-
-```ts
-// src/index.ts
-const app = new Hono<{ Bindings: CloudflareBindings }>()
-```
+[UNLICENSE](./UNLICENSE)
