@@ -1,0 +1,12 @@
+- room service: create a room
+- room service: ttl on a room (1 hour)
+- web ui - join a room
+- room service - join a room and websockets
+- web ui - show connected users
+- web ui - draw
+- room service - persist state
+- signalling service
+- web ui - webrtc
+- a chatbox with persistence
+- deployments
+- canvas pet (ai lives in the room as a third presence, wanders around the canvas leaving trails, eats certain colors, sleeps during silence, gets excited when users draw, has hunger/happiness meters, leaves little gifts when happy, can get sick if ignored too long and needs care)
