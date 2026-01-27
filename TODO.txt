@@ -9,4 +9,5 @@
 - web ui - webrtc
 - a chatbox with persistence
 - deployments
+- README
 - canvas pet (ai lives in the room as a third presence, wanders around the canvas leaving trails, eats certain colors, sleeps during silence, gets excited when users draw, has hunger/happiness meters, leaves little gifts when happy, can get sick if ignored too long and needs care)
