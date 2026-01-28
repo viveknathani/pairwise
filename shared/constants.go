@@ -16,3 +16,8 @@ const (
 	StatusTooManyRequests     = 429
 	StatusInternalServerError = 500
 )
+
+// Room
+const (
+	RoomTTL = 1 * 60 * 60 // 1 hour in seconds
+)

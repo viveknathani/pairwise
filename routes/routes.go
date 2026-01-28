@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"pairwise/controllers"
 	"pairwise/shared"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,4 +15,8 @@ func Setup(app *fiber.App, state *shared.State) {
 			"message": "market-data is alive",
 		})
 	})
+
+	roomController := controllers.NewRoomController(state)
+
+	app.Post("/api/v1/rooms", roomController.CreateRoom)
 }

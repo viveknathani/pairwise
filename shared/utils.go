@@ -67,9 +67,9 @@ func GetRequestLoggingMiddleware() fiber.Handler {
 		)
 
 		if statusCode >= 500 {
-			logger.Error(logStatement)
+			logger.Error("%s", logStatement)
 		} else {
-			logger.Info(logStatement)
+			logger.Info("%s", logStatement)
 		}
 
 		return err

@@ -1,5 +1,3 @@
-- room service: create a room
-- room service: ttl on a room (1 hour)
 - web ui - join a room
 - room service - join a room and websockets
 - web ui - show connected users

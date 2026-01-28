@@ -35,7 +35,6 @@ func main() {
 		os.Exit(1)
 	}
 	database.RunPostgresMigrations("database/migrations", postgresConnection)
-	postgresConnection.Close()
 
 	state := shared.State{
 		Database:    postgres,
